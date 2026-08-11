@@ -1,5 +1,4 @@
-// Linear algebra for the rasterizer. Column-vector convention: v' = M * v.
-// Mat4 storage is row-major, i.e. m[row][col].
+// Column-vector convention: v' = M * v. Mat4 storage is row-major, m[row][col].
 #pragma once
 
 #include <algorithm>
@@ -17,8 +16,6 @@ inline constexpr float kPi = 3.14159265358979323846f;
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// ---------------------------------------------------------------------- Vec2
-
 struct Vec2 {
     float x{}, y{};
 
@@ -32,8 +29,6 @@ struct Vec2 {
     constexpr Vec2& operator+=(const Vec2& o) noexcept { x += o.x; y += o.y; return *this; }
 };
 
-// ---------------------------------------------------------------------- Vec3
-
 struct Vec3 {
     float x{}, y{}, z{};
 
@@ -46,7 +41,7 @@ struct Vec3 {
     constexpr Vec3 operator-() const noexcept { return {-x, -y, -z}; }
     constexpr Vec3 operator*(float s) const noexcept { return {x * s, y * s, z * s}; }
     constexpr Vec3 operator/(float s) const noexcept { return {x / s, y / s, z / s}; }
-    // Component-wise product; convenient when modulating colours.
+    // Component-wise, for modulating colors.
     constexpr Vec3 operator*(const Vec3& o) const noexcept { return {x * o.x, y * o.y, z * o.z}; }
 
     constexpr Vec3& operator+=(const Vec3& o) noexcept { x += o.x; y += o.y; z += o.z; return *this; }
@@ -90,12 +85,9 @@ struct Vec3 {
     return {clampf(v.x, 0.0f, 1.0f), clampf(v.y, 0.0f, 1.0f), clampf(v.z, 0.0f, 1.0f)};
 }
 
-// Mirror `i` about the surface normal `n` (n assumed unit length).
 [[nodiscard]] inline constexpr Vec3 reflect(const Vec3& i, const Vec3& n) noexcept {
     return i - n * (2.0f * dot(i, n));
 }
-
-// ---------------------------------------------------------------------- Vec4
 
 struct Vec4 {
     float x{}, y{}, z{}, w{};
@@ -118,8 +110,6 @@ struct Vec4 {
 [[nodiscard]] inline constexpr float dot(const Vec4& a, const Vec4& b) noexcept {
     return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }
-
-// ---------------------------------------------------------------------- Mat4
 
 struct Mat4 {
     float m[4][4]{};
@@ -156,13 +146,11 @@ struct Mat4 {
     }
 };
 
-// Apply to a position (w = 1) and drop the homogeneous coordinate.
 [[nodiscard]] inline constexpr Vec3 transformPoint(const Mat4& mat, const Vec3& p) noexcept {
     const Vec4 r = mat * Vec4(p, 1.0f);
     return r.xyz();
 }
 
-// Apply to a direction (w = 0), so translation is ignored.
 [[nodiscard]] inline constexpr Vec3 transformDirection(const Mat4& mat, const Vec3& d) noexcept {
     const Vec4 r = mat * Vec4(d, 0.0f);
     return r.xyz();
@@ -208,7 +196,6 @@ struct Mat4 {
     return r;
 }
 
-// Rodrigues' rotation formula in matrix form.
 [[nodiscard]] inline Mat4 rotationAxis(const Vec3& axis, float angle) noexcept {
     const Vec3 a = normalize(axis);
     const float c = std::cos(angle), s = std::sin(angle), t = 1.0f - c;
@@ -225,11 +212,11 @@ struct Mat4 {
     return r;
 }
 
-// Right-handed view matrix: camera looks down -Z in eye space.
+// Right-handed: the camera looks down -Z in eye space.
 [[nodiscard]] inline Mat4 lookAt(const Vec3& eye, const Vec3& center, const Vec3& up) noexcept {
-    const Vec3 f = normalize(center - eye);   // forward
-    const Vec3 s = normalize(cross(f, up));   // right
-    const Vec3 u = cross(s, f);               // true up
+    const Vec3 f = normalize(center - eye);
+    const Vec3 s = normalize(cross(f, up));
+    const Vec3 u = cross(s, f);
 
     Mat4 r = Mat4::identity();
     r.m[0][0] = s.x;  r.m[0][1] = s.y;  r.m[0][2] = s.z;  r.m[0][3] = -dot(s, eye);
@@ -238,7 +225,7 @@ struct Mat4 {
     return r;
 }
 
-// Right-handed perspective projection mapping z to the [-1, 1] clip range.
+// Maps z into [-1, 1], the OpenGL convention.
 [[nodiscard]] inline Mat4 perspective(float fovY, float aspect, float zNear, float zFar) noexcept {
     const float f = 1.0f / std::tan(fovY * 0.5f);
     Mat4 r;
@@ -262,7 +249,7 @@ struct Mat4 {
     return r;
 }
 
-// General 4x4 inverse via cofactor expansion. Returns identity for singular input.
+// Cofactor expansion. Returns identity if the matrix is singular.
 [[nodiscard]] inline Mat4 inverse(const Mat4& mat) noexcept {
     const float* a = &mat.m[0][0];
     float inv[16];
@@ -294,7 +281,7 @@ struct Mat4 {
     return out;
 }
 
-// Matrix for transforming normals under a possibly non-uniform scale.
+// Normals need this instead of the model matrix under non-uniform scale.
 [[nodiscard]] inline Mat4 normalMatrix(const Mat4& model) noexcept {
     return inverse(model).transposed();
 }

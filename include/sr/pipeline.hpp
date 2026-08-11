@@ -1,15 +1,6 @@
-// The rasterization pipeline itself.
-//
-// draw() runs three stages:
-//   1. geometry  - vertex shading, frustum clipping, back-face culling and the
-//                  viewport transform, producing screen-space triangles;
-//   2. binning   - each triangle is filed into every 64x64 tile it touches;
-//   3. raster    - tiles are claimed by worker threads and scan-converted.
-//
-// Binning by tile is what makes the raster stage safe to thread: a tile is
-// owned by exactly one worker, so no two threads ever touch the same pixel of
-// the colour or depth buffer, and the result is bit-identical to the
-// single-threaded path regardless of thread count.
+// draw() runs three stages: geometry (vertex shading, clipping, culling,
+// viewport transform), binning (file each triangle into the tiles it touches),
+// and raster (workers claim tiles and scan-convert them).
 #pragma once
 
 #include <algorithm>
@@ -31,16 +22,15 @@
 
 namespace sr {
 
-// Anything the vertex stage wants interpolated across a triangle: it just has
-// to be a vector space over float.
+// Varyings only need to be a vector space over float.
 template <class T>
 concept VaryingType = std::default_initializable<T> && requires(const T& a, const T& b, float s) {
     { a * s } -> std::convertible_to<T>;
     { a + b } -> std::convertible_to<T>;
 };
 
-// The shader interface, checked at compile time instead of through inheritance
-// and virtual dispatch, so the fragment stage inlines into the inner loop.
+// Checked at compile time rather than through a vtable, so fragment() inlines
+// into the raster loop.
 template <class S>
 concept ShaderProgram = requires {
     typename S::VertexIn;
@@ -48,9 +38,8 @@ concept ShaderProgram = requires {
 } && VaryingType<typename S::Varyings> &&
     requires(const S& shader, const typename S::VertexIn& in, typename S::Varyings& out,
              const typename S::Varyings& interpolated) {
-        // Returns the clip-space position and fills `out` with varyings.
         { shader.vertex(in, out) } -> std::same_as<Vec4>;
-        // Returns linear RGB + alpha, or nullopt to discard the fragment.
+        // Linear RGB + alpha, or nullopt to discard.
         { shader.fragment(interpolated) } -> std::same_as<std::optional<Vec4>>;
     };
 
@@ -59,13 +48,13 @@ enum class BlendMode { Opaque, Alpha };
 
 struct RenderStats {
     std::uint64_t trianglesSubmitted = 0;
-    std::uint64_t trianglesCulled = 0;      // removed by back/front-face culling
+    std::uint64_t trianglesCulled = 0;
     std::uint64_t trianglesClipped = 0;     // straddled the frustum, had to be split
     std::uint64_t trianglesRejected = 0;    // entirely outside the frustum
-    std::uint64_t trianglesRasterized = 0;  // reached the raster stage post-clip
-    std::uint64_t fragmentsCovered = 0;     // passed the coverage test
-    std::uint64_t fragmentsShaded = 0;      // survived the depth test, shader ran
-    std::uint64_t fragmentsWritten = 0;     // actually written to the framebuffer
+    std::uint64_t trianglesRasterized = 0;  // post-clip, so can exceed the input count
+    std::uint64_t fragmentsCovered = 0;
+    std::uint64_t fragmentsShaded = 0;  // passed the depth test, shader ran
+    std::uint64_t fragmentsWritten = 0;
 
     void add(const RenderStats& o) noexcept {
         trianglesSubmitted += o.trianglesSubmitted;
@@ -83,39 +72,34 @@ struct PipelineConfig {
     CullMode cull = CullMode::Back;
     bool depthTest = true;
     bool depthWrite = true;
-    bool colorWrite = true;  // false gives a depth-only pass, e.g. a shadow map
+    bool colorWrite = true;  // false for a depth-only pass such as a shadow map
     BlendMode blend = BlendMode::Opaque;
-    int threads = 0;  // 0 -> std::thread::hardware_concurrency()
+    int threads = 0;  // 0 means hardware_concurrency()
 };
 
 namespace detail {
 
 inline constexpr int kTileSize = 64;
 
-// A triangle after the viewport transform. z is window depth in [0, 1]; invW is
-// kept per-vertex so the raster stage can undo the perspective divide when
-// interpolating varyings.
 template <class V>
 struct ScreenTriangle {
-    Vec3 screen[3];
-    float invW[3];
+    Vec3 screen[3];  // x,y in pixels, z is window depth in [0,1]
+    float invW[3];   // kept so the raster stage can undo the perspective divide
     V varyings[3];
     int minX, minY, maxX, maxY;
 };
 
-// Twice the signed area of (a, b, p). Screen space has y growing downward, so a
-// positive result means the winding is clockwise on screen.
+// Twice the signed area of (a, b, p). y grows downward, so positive means
+// clockwise on screen.
 [[nodiscard]] inline float edgeFunction(const Vec3& a, const Vec3& b, float px, float py) noexcept {
     return (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x);
 }
 
-// Fill rule for shared edges: a pixel centre landing exactly on an edge belongs
-// to the triangle only if that edge is a top or left edge. Without this, seams
-// are either double-shaded (visible with blending) or dropped entirely.
-// Derived for positive-area (clockwise on screen) winding with y downward.
+// Top-left fill rule: a pixel center exactly on a shared edge goes to one
+// triangle only, never both or neither. Assumes positive area and y downward.
 [[nodiscard]] inline bool isTopLeftEdge(const Vec3& a, const Vec3& b) noexcept {
-    if (a.y == b.y) return b.x > a.x;  // horizontal edge with the interior below
-    return b.y < a.y;                  // edge running up the screen
+    if (a.y == b.y) return b.x > a.x;
+    return b.y < a.y;
 }
 
 [[nodiscard]] inline int resolveThreadCount(int requested, std::size_t workItems) noexcept {
@@ -126,8 +110,7 @@ struct ScreenTriangle {
     return count < 1 ? 1 : count;
 }
 
-// Scan-converts one triangle, restricted to the pixel rectangle
-// [clipX0, clipX1] x [clipY0, clipY1] (the owning tile, or the whole target).
+// Scan-converts one triangle, clipped to the given pixel rectangle (its tile).
 template <ShaderProgram S>
 void rasterizeTriangle(const S& shader, Framebuffer& fb, const PipelineConfig& config,
                        const ScreenTriangle<typename S::Varyings>& tri, int clipX0, int clipY0,
@@ -142,16 +125,15 @@ void rasterizeTriangle(const S& shader, Framebuffer& fb, const PipelineConfig& c
     const Vec3& p1 = tri.screen[1];
     const Vec3& p2 = tri.screen[2];
 
-    // Guaranteed positive by the geometry stage, which swaps vertices as needed.
-    const float area = edgeFunction(p0, p1, p2.x, p2.y);
+    const float area = edgeFunction(p0, p1, p2.x, p2.y);  // positive, geometry stage ensures it
     const float invArea = 1.0f / area;
 
     const bool topLeft0 = isTopLeftEdge(p1, p2);
     const bool topLeft1 = isTopLeftEdge(p2, p0);
     const bool topLeft2 = isTopLeftEdge(p0, p1);
 
-    // The edge function is affine in x, so stepping across a scanline is a add.
-    // Each row restarts from an exact evaluation to stop error accumulating.
+    // Edge functions are affine in x, so a scanline steps by a constant. Rows
+    // restart from an exact evaluation so error cannot accumulate.
     const float stepX0 = -(p2.y - p1.y);
     const float stepX1 = -(p0.y - p2.y);
     const float stepX2 = -(p1.y - p0.y);
@@ -173,15 +155,13 @@ void rasterizeTriangle(const S& shader, Framebuffer& fb, const PipelineConfig& c
             const float b1 = w1 * invArea;
             const float b2 = w2 * invArea;
 
-            // Window-space z is affine in screen space, so it interpolates
-            // directly with the screen-space barycentrics.
+            // Window z is affine in screen space, so plain barycentrics are exact.
             const float depth = b0 * p0.z + b1 * p1.z + b2 * p2.z;
             float& dstDepth = fb.depthAt(x, y);
             if (config.depthTest && depth > dstDepth) continue;
             ++stats.fragmentsShaded;
 
-            // Everything else must be perspective-corrected: interpolate 1/w
-            // linearly, then weight each vertex by its own 1/w.
+            // Varyings are not. Interpolate 1/w, then reweight by each vertex's own.
             const float interpolatedInvW = b0 * tri.invW[0] + b1 * tri.invW[1] + b2 * tri.invW[2];
             const float renormalize = 1.0f / interpolatedInvW;
             const float c0 = b0 * tri.invW[0] * renormalize;
@@ -192,7 +172,7 @@ void rasterizeTriangle(const S& shader, Framebuffer& fb, const PipelineConfig& c
                 tri.varyings[0] * c0 + tri.varyings[1] * c1 + tri.varyings[2] * c2;
 
             const std::optional<Vec4> shaded = shader.fragment(varyings);
-            if (!shaded) continue;  // discarded by the shader
+            if (!shaded) continue;
 
             if (config.colorWrite) {
                 Vec3 color = shaded->xyz();
@@ -223,8 +203,7 @@ public:
               std::span<const std::uint32_t> indices, const PipelineConfig& config = {});
 
 private:
-    // Dispatches fn(0..count-1) across the pool, creating it on first use so a
-    // purely single-threaded caller never spawns a thread.
+    // Pool is built on first use, so single-threaded callers never spawn a thread.
     void dispatch(int count, const std::function<void(int)>& fn) {
         if (count <= 1) {
             fn(0);
@@ -258,7 +237,6 @@ void Rasterizer::draw(const S& shader, std::span<const typename S::VertexIn> ver
     std::vector<std::vector<Triangle>> perThreadTriangles(static_cast<std::size_t>(threadCount));
     std::vector<RenderStats> perThreadStats(static_cast<std::size_t>(threadCount));
 
-    // ------------------------------------------------------------ geometry
     auto geometryStage = [&](int t) {
         const std::size_t begin = inputTriangles * static_cast<std::size_t>(t) / threadCount;
         const std::size_t end = inputTriangles * static_cast<std::size_t>(t + 1) / threadCount;
@@ -293,8 +271,7 @@ void Rasterizer::draw(const S& shader, std::span<const typename S::VertexIn> ver
                 ++stats.trianglesClipped;
             }
 
-            // Fan-triangulate the clipped polygon around its first vertex.
-            for (int k = 2; k < count; ++k) {
+            for (int k = 2; k < count; ++k) {  // fan-triangulate the clipped polygon
                 const ClipVertex<V>* corners[3] = {&polygon[0],
                                                    &polygon[static_cast<std::size_t>(k - 1)],
                                                    &polygon[static_cast<std::size_t>(k)]};
@@ -302,8 +279,8 @@ void Rasterizer::draw(const S& shader, std::span<const typename S::VertexIn> ver
                 for (int c = 0; c < 3; ++c) {
                     const Vec4& clip = corners[c]->position;
                     const float invW = 1.0f / clip.w;
-                    // Perspective divide, then NDC -> pixels. y is flipped
-                    // because row 0 of the framebuffer is the top of the image.
+                    // Perspective divide, then NDC to pixels. y flips because row
+                    // 0 is the top of the image.
                     tri.screen[c] = {(clip.x * invW * 0.5f + 0.5f) * fWidth,
                                      (0.5f - clip.y * invW * 0.5f) * fHeight,
                                      clip.z * invW * 0.5f + 0.5f};
@@ -316,8 +293,7 @@ void Rasterizer::draw(const S& shader, std::span<const typename S::VertexIn> ver
                                          tri.screen[2].y);
                 if (!(std::fabs(area) > 1e-9f)) continue;  // degenerate or NaN
 
-                // Front faces are counter-clockwise in NDC, which the y flip
-                // turns into a negative screen-space area.
+                // Front faces are CCW in NDC, which the y flip makes negative here.
                 const bool frontFacing = area < 0.0f;
                 if ((config.cull == CullMode::Back && !frontFacing) ||
                     (config.cull == CullMode::Front && frontFacing)) {
@@ -325,8 +301,8 @@ void Rasterizer::draw(const S& shader, std::span<const typename S::VertexIn> ver
                     continue;
                 }
 
-                // The raster stage assumes positive area; swapping two corners
-                // flips the winding without changing the covered pixels.
+                // Raster wants positive area. Swapping two corners flips the
+                // winding without changing coverage.
                 if (area < 0.0f) {
                     std::swap(tri.screen[1], tri.screen[2]);
                     std::swap(tri.invW[1], tri.invW[2]);
@@ -354,8 +330,7 @@ void Rasterizer::draw(const S& shader, std::span<const typename S::VertexIn> ver
     };
     dispatch(threadCount, geometryStage);
 
-    // Concatenating in thread order keeps submission order, so overlapping
-    // coplanar geometry resolves the same way every run.
+    // Concatenating in thread order preserves submission order.
     std::size_t totalTriangles = 0;
     for (const std::vector<Triangle>& chunk : perThreadTriangles) totalTriangles += chunk.size();
 
@@ -364,12 +339,10 @@ void Rasterizer::draw(const S& shader, std::span<const typename S::VertexIn> ver
     for (const std::vector<Triangle>& chunk : perThreadTriangles)
         triangles.insert(triangles.end(), chunk.begin(), chunk.end());
 
-    // -------------------------------------------------------------- binning
-    // Tiles are a fixed decomposition of the target, independent of how many
-    // workers there are. Because a triangle is always scan-converted starting
-    // from its tile's left edge, every fragment sees the same arithmetic at any
-    // thread count -- so the rendered image is bit-identical, not merely
-    // equivalent. Serial rendering is just this loop with one worker.
+    // One worker owns a tile, so no two threads touch the same pixel and there
+    // are no atomics on the buffers. The tile grid does not depend on the thread
+    // count and triangles always start scanning from their tile's left edge, so
+    // the output is bit-identical at any thread count.
     if (totalTriangles != 0) {
         const int tilesX = (width + detail::kTileSize - 1) / detail::kTileSize;
         const int tilesY = (height + detail::kTileSize - 1) / detail::kTileSize;
@@ -385,7 +358,6 @@ void Rasterizer::draw(const S& shader, std::span<const typename S::VertexIn> ver
                         .push_back(i);
         }
 
-        // --------------------------------------------------------- raster
         std::atomic<int> nextTile{0};
         auto rasterStage = [&](int t) {
             RenderStats& stats = perThreadStats[static_cast<std::size_t>(t)];
@@ -399,8 +371,6 @@ void Rasterizer::draw(const S& shader, std::span<const typename S::VertexIn> ver
                 const int tileX1 = std::min(tileX + detail::kTileSize - 1, width - 1);
                 const int tileY1 = std::min(tileY + detail::kTileSize - 1, height - 1);
 
-                // Bin order is global submission order, so overlapping coplanar
-                // surfaces resolve identically however the tiles are scheduled.
                 for (std::uint32_t index : bin) {
                     detail::rasterizeTriangle(shader, fb, config, triangles[index], tileX, tileY,
                                               tileX1, tileY1, stats);

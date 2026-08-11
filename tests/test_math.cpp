@@ -149,7 +149,7 @@ TEST(primitive_meshes_are_well_formed) {
     CHECK_NEAR(b.min.x, -1.0, 1e-6);
     CHECK_NEAR(b.max.y, 1.0, 1e-6);
 
-    // Every cube normal points away from the centre.
+    // Every cube normal points away from the center.
     for (const Vertex& v : cube.vertices) CHECK(dot(v.position, v.normal) > 0.0f);
 
     const Mesh sphere = Mesh::uvSphere(1.0f, 8, 16);
@@ -170,10 +170,10 @@ TEST(recomputed_normals_match_analytic_ones) {
     const std::vector<Vertex> analytic = sphere.vertices;
     sphere.recomputeNormals();
 
-    // Area-weighted vertex normals on a dense sphere should be very close to
-    // the exact ones. The seam column only sees half its neighbourhood, so
-    // allow a little slack -- but every normal must still be unit length and
-    // point outwards, including the pole caps where the faces degenerate.
+    // On a dense sphere these should land very close to the exact normals. The
+    // seam column only sees half its neighborhood so it gets some slack, but
+    // every normal must still come out unit length, including at the poles
+    // where the faces degenerate.
     double worst = 0.0;
     bool allUnitLength = true;
     for (std::size_t i = 0; i < sphere.vertices.size(); ++i) {
@@ -191,7 +191,7 @@ TEST(mesh_transform_and_normalize) {
     const Bounds b = cube.bounds();
     CHECK_NEAR(b.center().x, 5.0, 1e-5);
     CHECK_NEAR(b.extent().x, 4.0, 1e-5);
-    // Non-uniform scale must not leave normals unnormalised.
+    // Non-uniform scale must not leave normals unnormalized.
     for (const Vertex& v : cube.vertices) CHECK_NEAR(length(v.normal), 1.0, 1e-5);
 
     cube.normalizeToUnitSize(2.0f);

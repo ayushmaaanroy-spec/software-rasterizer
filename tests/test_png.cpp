@@ -1,6 +1,5 @@
-// Structural checks on the PNG encoder. A malformed stream is caught here; that
-// real decoders accept the output is verified separately against an external
-// decoder, since this project deliberately has nothing to decode it with.
+// Structural checks on the encoded stream. There is nothing here to decode PNG
+// with, so acceptance by a real decoder is checked outside the suite.
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -80,11 +79,11 @@ TEST(png_stream_is_structurally_valid) {
     CHECK(offset == png.size());  // no trailing garbage
     CHECK(order == "IHDRIDATIEND");
 
-    // IHDR: 8-bit truecolour RGB, no interlacing, dimensions as requested.
+    // IHDR: 8-bit truecolor RGB, no interlacing, dimensions as requested.
     CHECK(readBigEndian32(png, 16) == static_cast<std::uint32_t>(kWidth));
     CHECK(readBigEndian32(png, 20) == static_cast<std::uint32_t>(kHeight));
     CHECK(png[24] == 8);  // bit depth
-    CHECK(png[25] == 2);  // colour type
+    CHECK(png[25] == 2);  // color type
     CHECK(png[26] == 0);  // compression method
     CHECK(png[27] == 0);  // filter method
     CHECK(png[28] == 0);  // interlace method
@@ -158,7 +157,7 @@ TEST(framebuffer_rgb8_matches_the_srgb_curve) {
     const std::vector<std::uint8_t> rgb = fb.encodeRgb8();
     CHECK(rgb.size() == 6);
     CHECK(rgb[0] == 0);
-    // Linear 0.5 encodes to about 188, not 128 -- that is the point of the curve.
+    // Linear 0.5 encodes to about 188, not 128. That is the whole point.
     CHECK(rgb[1] > 180 && rgb[1] < 195);
     CHECK(rgb[2] == 255);
     CHECK(rgb[3] == 255 && rgb[4] == 255 && rgb[5] == 255);

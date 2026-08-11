@@ -15,7 +15,7 @@ using namespace sr;
 
 namespace {
 
-// Passes the vertex colour straight through, so a rendered pixel reports the
+// Passes vertex color straight through, so a rendered pixel reports the
 // interpolated varying exactly.
 struct ProbeShader {
     using VertexIn = Vertex;
@@ -58,9 +58,8 @@ const std::vector<std::uint32_t> kQuadIndices = {0, 1, 2, 0, 2, 3};
 
 }  // namespace
 
-// A screen-filling quad must cover every pixel exactly once. Any double
-// coverage along the shared diagonal, or any dropped pixel, shows up here --
-// this is the assertion that pins down the top-left fill rule.
+// Pins down the top-left fill rule. Double coverage along the shared diagonal,
+// or a dropped pixel, both show up in the count.
 TEST(fullscreen_quad_covers_every_pixel_exactly_once) {
     constexpr int kWidth = 64, kHeight = 48;
     Framebuffer fb(kWidth, kHeight);
@@ -152,7 +151,7 @@ TEST(depth_buffer_resolves_occlusion) {
     raster.draw(ProbeShader{}, near, kQuadIndices, config);
     raster.draw(ProbeShader{}, far, kQuadIndices, config);
 
-    // Centre pixel is covered by the near quad; a corner only by the far one.
+    // Center pixel is covered by the near quad, a corner only by the far one.
     const Vec3 center = fb.colorAt(kWidth / 2, kHeight / 2);
     CHECK_NEAR(center.y, 1.0, 1e-6);
     CHECK_NEAR(center.x, 0.0, 1e-6);
@@ -182,9 +181,8 @@ TEST(depth_test_and_write_can_be_disabled) {
     CHECK_NEAR(fb.depthAt(8, 8), 1.0, 1e-6);
 }
 
-// Varyings must be interpolated with the perspective divide undone. A ground
-// plane receding from the camera makes the difference obvious: affine
-// interpolation is off by a factor of three at the sample point.
+// A receding ground plane makes the difference obvious: affine interpolation is
+// off by a factor of three at the sample point.
 TEST(varyings_are_perspective_correct) {
     constexpr int kSize = 240;
     Framebuffer fb(kSize, kSize);
@@ -291,9 +289,8 @@ TEST(clipper_handles_the_near_plane) {
     }
 }
 
-// End-to-end: geometry that crosses the near plane and spills off every side
-// must still land inside the framebuffer, with no wrap-around from dividing by
-// a negative w.
+// Geometry crossing the near plane and spilling off every side still has to land
+// inside the framebuffer, with no wrap-around from dividing by a negative w.
 TEST(clipped_geometry_stays_inside_the_viewport) {
     constexpr int kWidth = 160, kHeight = 120;
     Framebuffer fb(kWidth, kHeight);
@@ -364,8 +361,7 @@ TEST(fragment_discard_skips_the_write) {
     CHECK_NEAR(fb.depthAt(29, 16), 0.5, 1e-5);
 }
 
-// Tile ownership means threading changes nothing about the output. If this ever
-// fails, two workers are touching the same pixel.
+// If this fails, two workers are touching the same pixel.
 TEST(threading_produces_identical_output) {
     const Mesh mesh = Mesh::uvSphere(1.0f, 24, 48);
 

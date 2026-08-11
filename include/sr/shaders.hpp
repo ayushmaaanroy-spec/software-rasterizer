@@ -1,4 +1,3 @@
-// Concrete shader programs satisfying the ShaderProgram concept.
 #pragma once
 
 #include <optional>
@@ -25,7 +24,6 @@ struct Material {
     bool useVertexColor = false;
 };
 
-// Varyings shared by the lit and debug shaders below.
 struct SurfaceVaryings {
     Vec3 worldPosition;
     Vec3 normal;
@@ -40,8 +38,8 @@ struct SurfaceVaryings {
     }
 };
 
-// Blinn-Phong with a single directional light and a hemisphere ambient term.
-// All arithmetic is in linear space; the framebuffer applies sRGB on write.
+// Blinn-Phong, one directional light, hemisphere ambient. All linear; the
+// framebuffer applies sRGB on write.
 struct LitShader {
     using VertexIn = Vertex;
     using Varyings = SurfaceVaryings;
@@ -55,7 +53,7 @@ struct LitShader {
     Material material;
     Vec3 ambientSky{0.16f, 0.19f, 0.26f};
     Vec3 ambientGround{0.05f, 0.045f, 0.04f};
-    const ShadowMap* shadowMap = nullptr;  // optional; null means everything is lit
+    const ShadowMap* shadowMap = nullptr;
 
     void setModel(const Mat4& matrix) noexcept {
         model = matrix;
@@ -88,12 +86,10 @@ struct LitShader {
         const float specular =
             nDotL > 0.0f ? std::pow(nDotH, material.shininess) * material.specular : 0.0f;
 
-        // Hemisphere ambient: upward-facing surfaces pick up sky, downward the ground.
         const Vec3 ambient = lerp(ambientGround, ambientSky, n.y * 0.5f + 0.5f);
 
-        // Only the direct term is occluded. Ambient keeps shadowed regions from
-        // crushing to black, which is also what stops the shadow map's edge from
-        // reading as a hard line.
+        // Only the direct term is occluded, so shadowed areas keep their ambient
+        // and the edge of the shadow map does not read as a hard line.
         const float visibility =
             shadowMap != nullptr ? shadowMap->visibility(in.worldPosition, n, nDotL) : 1.0f;
 
@@ -103,8 +99,7 @@ struct LitShader {
     }
 };
 
-// Position only, for depth-only passes such as filling a shadow map. It carries
-// no varyings at all, which the Varyings concept is happy with.
+// Position only, for filling a shadow map.
 struct DepthOnlyShader {
     using VertexIn = Vertex;
 
@@ -127,8 +122,8 @@ struct DepthOnlyShader {
     }
 };
 
-// Visualises interpolated world-space normals; handy for spotting winding and
-// normal-matrix mistakes.
+// World-space normals as color. Quickest way to spot a winding or normal-matrix
+// mistake.
 struct NormalShader {
     using VertexIn = Vertex;
     using Varyings = SurfaceVaryings;
@@ -157,8 +152,6 @@ struct NormalShader {
     }
 };
 
-// Flat colour with no lighting, optionally alpha-blended and optionally
-// discarding fragments to show off shader-side rejection.
 struct UnlitShader {
     using VertexIn = Vertex;
     using Varyings = SurfaceVaryings;
@@ -169,8 +162,7 @@ struct UnlitShader {
     float alpha = 1.0f;
     const Texture* albedoMap = nullptr;
     float uvScale = 1.0f;
-    // When > 0, fragments whose checker value falls below the cutoff are discarded.
-    float alphaCutoff = 0.0f;
+    float alphaCutoff = 0.0f;  // > 0 discards texels darker than this
 
     void setModel(const Mat4& matrix) noexcept { model = matrix; }
 

@@ -57,7 +57,7 @@ Vec3 Texture::sampleNearest(float u, float v) const noexcept {
 Vec3 Texture::sampleBilinear(float u, float v) const noexcept {
     if (texels_.empty()) return Vec3(1.0f);
 
-    // Sample at texel centres, hence the -0.5 shift.
+    // Sample at texel centers, hence the -0.5 shift.
     const float fx = u * static_cast<float>(width_) - 0.5f;
     const float fy = v * static_cast<float>(height_) - 0.5f;
     const int x0 = static_cast<int>(std::floor(fx));

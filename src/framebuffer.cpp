@@ -8,7 +8,7 @@
 namespace sr {
 namespace {
 
-// BMP headers are little-endian regardless of host byte order.
+// BMP is little-endian whatever the host is.
 void put16(std::uint8_t* out, std::uint16_t v) {
     out[0] = static_cast<std::uint8_t>(v & 0xFF);
     out[1] = static_cast<std::uint8_t>((v >> 8) & 0xFF);
@@ -126,14 +126,12 @@ bool Framebuffer::writePNG(const std::string& path) const {
 bool Framebuffer::writeBMP(const std::string& path) const {
     if (!hasColor()) return false;
 
-    // Each row is padded to a 4-byte boundary, and rows are stored bottom-up.
     const int rowBytes = width_ * 3;
-    const int padding = (4 - (rowBytes % 4)) % 4;
+    const int padding = (4 - (rowBytes % 4)) % 4;  // rows align to 4 bytes
     const std::uint32_t imageBytes = static_cast<std::uint32_t>((rowBytes + padding) * height_);
     constexpr std::uint32_t kHeaderBytes = 14 + 40;
 
-    // Sized up front and zero-filled, so the reserved header fields and the
-    // per-row padding need no explicit writes.
+    // Zero-filled, so the reserved fields and the row padding need no writes.
     std::vector<std::uint8_t> bytes(kHeaderBytes + imageBytes, 0);
     std::uint8_t* const header = bytes.data();
 
@@ -145,7 +143,7 @@ bool Framebuffer::writeBMP(const std::string& path) const {
     put32(header + 14, 40);                 // BITMAPINFOHEADER size
     put32(header + 18, static_cast<std::uint32_t>(width_));
     put32(header + 22, static_cast<std::uint32_t>(height_));
-    put16(header + 26, 1);                  // colour planes
+    put16(header + 26, 1);                  // color planes
     put16(header + 28, 24);                 // bits per pixel
     put32(header + 30, 0);                  // BI_RGB, no compression
     put32(header + 34, imageBytes);

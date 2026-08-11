@@ -1,4 +1,4 @@
-// Demo driver: builds a few scenes, renders them and writes BMP files.
+// Demo driver: builds a few scenes, renders them, writes them out.
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -75,9 +75,8 @@ DirectionalLight keyLight() {
     return light;
 }
 
-// Scenes that want shadows have to submit their geometry twice -- once from the
-// light, once from the camera -- so the object list is built up front rather
-// than drawn inline.
+// Shadowed scenes submit their geometry twice, once from the light and once
+// from the camera, so the object list is built up front rather than drawn inline.
 struct SceneObject {
     const Mesh* mesh = nullptr;
     Mat4 model = Mat4::identity();
@@ -119,7 +118,6 @@ void renderLit(Rasterizer& raster, const Camera& camera, const DirectionalLight&
     }
 }
 
-// ------------------------------------------------------------------- scenes
 
 void sceneShowcase(Rasterizer& raster, const PipelineConfig& config, const Assets& assets,
                    float time) {
@@ -132,7 +130,7 @@ void sceneShowcase(Rasterizer& raster, const PipelineConfig& config, const Asset
         return c;
     }();
 
-    // Kept alive for the whole function: the object list only holds pointers.
+    // Must outlive `objects`, which only stores pointers.
     const Mesh ground = Mesh::plane(34.0f, 1);
     const Mesh cube = Mesh::cube(1.5f);
     const Mesh sphere = Mesh::uvSphere(1.0f, 32, 64);
@@ -140,10 +138,9 @@ void sceneShowcase(Rasterizer& raster, const PipelineConfig& config, const Asset
 
     std::vector<SceneObject> objects;
 
-    // Ground. Large enough that its far edge stays out of frame; the grid is
-    // deliberately coarse because there is no mip chain to filter it. It only
-    // receives shadows, so it stays out of the shadow map and leaves the
-    // resolution for the casters.
+    // Big enough that its far edge stays out of frame. The grid is coarse on
+    // purpose, there is no mip chain to filter it. Receives shadows but does not
+    // cast, so it stays out of the map and leaves the resolution to the casters.
     SceneObject& floor = objects.emplace_back();
     floor.mesh = &ground;
     floor.castsShadow = false;
@@ -182,8 +179,8 @@ void sceneShowcase(Rasterizer& raster, const PipelineConfig& config, const Asset
     rustSphere.material.specular = 0.20f;
     rustSphere.material.shininess = 20.0f;
 
-    // Torus, tilted just far enough to show the hole while still resting on the
-    // floor: at this tilt its lowest point sits a hair above y = 0.
+    // Tilted just far enough to show the hole. At this angle its lowest point
+    // sits a hair above y = 0.
     SceneObject& ring = objects.emplace_back();
     ring.mesh = &torus;
     ring.model = translation(Vec3{0.75f, 0.88f, 2.75f}) * rotationY(time * 1.1f) *
@@ -194,8 +191,8 @@ void sceneShowcase(Rasterizer& raster, const PipelineConfig& config, const Asset
 
     const DirectionalLight light = keyLight();
 
-    // The map only needs to cover the casters and where their shadows land, not
-    // the whole ground plane -- receivers outside it are simply treated as lit.
+    // Only needs to cover the casters and where their shadows land, not the
+    // whole ground plane. Receivers outside it count as lit.
     ShadowMap shadowMap(2048, light.direction, Vec3{0.0f, 0.9f, 0.6f}, 6.0f);
     renderShadowMap(shadowMap, objects, config);
 
@@ -215,8 +212,8 @@ void sceneNormals(Rasterizer& raster, const PipelineConfig& config, const Assets
     drawMesh(raster, shader, torus, config);
 }
 
-// Everything here exists to force the clipper to work: geometry crosses the
-// near plane, runs past the far plane, and spills off all four sides.
+// Built to work the clipper: geometry crosses the near plane, runs past the far
+// plane, and spills off all four sides.
 void sceneClipping(Rasterizer& raster, const PipelineConfig& config, const Assets& assets,
                    float time) {
     Camera camera;
@@ -233,8 +230,8 @@ void sceneClipping(Rasterizer& raster, const PipelineConfig& config, const Asset
     shader.light = keyLight();
     shader.light.intensity = 1.5f;
 
-    // A room turned inside out; the camera sits inside it, so every side plane
-    // of the frustum has to clip these walls.
+    // Room turned inside out with the camera in it, so every side plane has to
+    // clip these walls.
     Mesh room = Mesh::cube(26.0f);
     room.flipWinding();
     shader.setModel(translation(Vec3{0.0f, 6.0f, -8.0f}));
@@ -261,10 +258,9 @@ void sceneClipping(Rasterizer& raster, const PipelineConfig& config, const Asset
         }
     }
 
-    // Rails running the length of the corridor. A single one of these spans
-    // everything the clipper has to cope with at once: it starts behind the
-    // eye, crosses the near plane, runs the full width of the view and carries
-    // on past the far plane.
+    // One rail hits everything at once. It starts behind the eye, crosses the
+    // near plane, runs the full width of the view and carries on past the far
+    // plane.
     for (int side = -1; side <= 1; side += 2) {
         shader.setModel(translation(Vec3{static_cast<float>(side) * 2.4f, 0.22f, -17.5f}) *
                         scaling(Vec3{0.5f, 0.45f, 45.0f}));
@@ -348,7 +344,6 @@ void sceneModel(Rasterizer& raster, const PipelineConfig& config, const Assets&,
     renderLit(raster, camera, light, &shadowMap, objects, config);
 }
 
-// -------------------------------------------------------------------- driver
 
 void printStats(const RenderStats& s, double ms, int pixels) {
     std::printf("  triangles  submitted %llu | clipped %llu | culled %llu | rejected %llu | rasterized %llu\n",
@@ -464,7 +459,7 @@ void printUsage() {
         "  --frames <n>     render an n-frame turntable   (default 1)\n"
         "  --out <dir>      output directory              (default out)\n"
         "  --format <fmt>   png | bmp | ppm               (default png)\n"
-        "  --depth          write the depth buffer instead of shaded colour\n"
+        "  --depth          write the depth buffer instead of shaded color\n"
         "  --bench          run the threading benchmark and exit\n"
         "  --help\n");
 }
@@ -506,7 +501,7 @@ bool parseArgs(int argc, char** argv, Options& opt) {
         } else if (arg == "--frames" && needsValue(i)) {
             opt.frames = std::max(1, std::atoi(argv[++i]));
         } else {
-            std::fprintf(stderr, "unrecognised option '%s'\n\n", arg.c_str());
+            std::fprintf(stderr, "unrecognized option '%s'\n\n", arg.c_str());
             printUsage();
             return false;
         }

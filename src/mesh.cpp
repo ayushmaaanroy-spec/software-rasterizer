@@ -7,8 +7,8 @@
 namespace sr {
 namespace {
 
-// Shared by every parametric surface below: emits the two triangles of the
-// (i, j) quad wound counter-clockwise as seen from outside.
+// Two triangles of the (i, j) quad, wound CCW seen from outside. Shared by every
+// parametric surface below.
 void emitQuad(std::vector<std::uint32_t>& indices, int i, int j, int stride) {
     const std::uint32_t a = static_cast<std::uint32_t>(i * stride + j);
     const std::uint32_t b = static_cast<std::uint32_t>(i * stride + j + 1);
@@ -42,13 +42,12 @@ void Mesh::recomputeNormals() noexcept {
 
         const Vec3 edge1 = b - a;
         const Vec3 edge2 = c - a;
-        // Un-normalised cross product weights each face by twice its area.
+        // Left unnormalized, which weights each face by twice its area.
         const Vec3 faceNormal = cross(edge1, edge2);
 
-        // A sliver triangle's cross product is almost entirely round-off, and
-        // pointing in an arbitrary direction. Sphere caps and fan-triangulated
-        // OBJ faces both produce these, so drop them rather than average them
-        // in. The test is scale-relative: |e1 x e2| = |e1||e2|sin(t).
+        // A sliver's cross product is mostly round-off pointing anywhere, so drop
+        // it rather than average it in. Sphere caps and fan-triangulated OBJ
+        // faces both produce these. Scale-relative, since |e1 x e2| = |e1||e2|sin.
         const float scale = std::max(dot(edge1, edge1), dot(edge2, edge2));
         if (dot(faceNormal, faceNormal) <= 1e-8f * scale * scale) continue;
 
@@ -57,8 +56,8 @@ void Mesh::recomputeNormals() noexcept {
         accumulated[indices[i + 2]] += faceNormal;
     }
 
-    // A vertex touched only by degenerate faces has nothing to derive a normal
-    // from, so it keeps the one it came in with instead of being zeroed.
+    // A vertex touched only by degenerate faces keeps the normal it came in with
+    // rather than being zeroed.
     for (std::size_t i = 0; i < vertices.size(); ++i) {
         if (dot(accumulated[i], accumulated[i]) > 0.0f)
             vertices[i].normal = normalize(accumulated[i]);
@@ -105,8 +104,8 @@ void Mesh::append(const Mesh& other) {
 Mesh Mesh::cube(float size) {
     const float h = size * 0.5f;
 
-    // Per face: outward normal plus two in-plane axes with cross(u, v) == normal,
-    // which makes the (-u,-v) (+u,-v) (+u,+v) (-u,+v) ordering counter-clockwise.
+    // Outward normal plus two in-plane axes with cross(u, v) == normal, which
+    // makes the (-u,-v) (+u,-v) (+u,+v) (-u,+v) corner order CCW.
     struct Face {
         Vec3 normal, u, v;
     };

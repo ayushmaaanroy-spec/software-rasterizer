@@ -1,5 +1,4 @@
-// Indexed triangle meshes: procedural primitives and a small OBJ reader.
-// Front faces are counter-clockwise when viewed from outside.
+// Indexed triangle meshes. Front faces are CCW seen from outside.
 #pragma once
 
 #include <cstdint>
@@ -35,12 +34,11 @@ struct Mesh {
 
     [[nodiscard]] Bounds bounds() const noexcept;
 
-    // Area-weighted smooth normals; discards whatever was there before.
     void recomputeNormals() noexcept;
     void flipWinding() noexcept;
     void setColor(const Vec3& color) noexcept;
     void transform(const Mat4& matrix) noexcept;
-    // Centre on the origin and scale so the largest dimension spans `targetSize`.
+    // Center on the origin and scale the largest dimension to targetSize.
     void normalizeToUnitSize(float targetSize = 2.0f) noexcept;
     void append(const Mesh& other);
 
@@ -50,8 +48,8 @@ struct Mesh {
     [[nodiscard]] static Mesh torus(float majorRadius = 1.0f, float minorRadius = 0.35f,
                                     int majorSegments = 48, int minorSegments = 24);
 
-    // Supports v/vt/vn and polygonal faces (fan-triangulated). Returns nullopt on
-    // I/O failure, with a human-readable reason in `error` when provided.
+    // v/vt/vn, with polygonal faces fan-triangulated. nullopt on failure, with a
+    // reason in error if given.
     [[nodiscard]] static std::optional<Mesh> loadObj(const std::string& path,
                                                      std::string* error = nullptr);
 };

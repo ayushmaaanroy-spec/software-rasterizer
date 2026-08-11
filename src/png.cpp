@@ -1,3 +1,5 @@
+// PNG writer: CRC-32, Adler-32 and a fixed-Huffman DEFLATE compressor, so image
+// output needs no dependency either.
 #include "sr/png.hpp"
 
 #include <algorithm>
@@ -6,8 +8,6 @@
 
 namespace sr {
 namespace {
-
-// ------------------------------------------------------------------ checksums
 
 std::uint32_t crc32Update(std::uint32_t crc, const std::uint8_t* data, std::size_t count) {
     static const std::array<std::uint32_t, 256> kTable = [] {
@@ -40,11 +40,8 @@ void appendBigEndian32(std::vector<std::uint8_t>& out, std::uint32_t v) {
     out.push_back(static_cast<std::uint8_t>(v & 0xFF));
 }
 
-// -------------------------------------------------------------------- DEFLATE
-
-// DEFLATE packs its own header fields starting at the least significant bit of
-// each byte, but Huffman codes go in most significant bit first. Those are two
-// different orders in the same stream, so they get two different methods.
+// DEFLATE packs header fields LSB first but Huffman codes MSB first. Two orders
+// in the same stream, hence two methods.
 class BitWriter {
 public:
     explicit BitWriter(std::vector<std::uint8_t>& out) noexcept : out_(out) {}
@@ -149,12 +146,11 @@ std::uint32_t hash3(const std::uint8_t* p) {
     return (key * 2654435761u) >> (32 - kHashBits);
 }
 
-// One fixed-Huffman block with greedy LZ77 matching over a hash chain. Good
-// enough to shrink a smooth render several-fold, and short enough to read.
+// One fixed-Huffman block, greedy LZ77 over a hash chain.
 void deflateFixed(const std::vector<std::uint8_t>& src, std::vector<std::uint8_t>& out) {
     BitWriter bits(out);
-    bits.writeBits(1, 1);  // BFINAL: this is the only block
-    bits.writeBits(1, 2);  // BTYPE 01: fixed Huffman codes
+    bits.writeBits(1, 1);  // BFINAL, this is the only block
+    bits.writeBits(1, 2);  // BTYPE 01, fixed Huffman
 
     const int size = static_cast<int>(src.size());
     std::vector<int> head(kHashSize, -1);
@@ -197,7 +193,7 @@ void deflateFixed(const std::vector<std::uint8_t>& src, std::vector<std::uint8_t
         if (bestLength >= kMinMatch) {
             writeLength(bits, bestLength);
             writeDistance(bits, bestDistance);
-            // Register the positions the match covered so later matches see them.
+            // Register what the match covered so later matches can find it.
             for (int i = 1; i < bestLength; ++i)
                 if (position + i + kMinMatch <= size) insert(position + i);
             position += bestLength;
@@ -213,8 +209,7 @@ void deflateFixed(const std::vector<std::uint8_t>& src, std::vector<std::uint8_t
 
 std::vector<std::uint8_t> zlibCompress(const std::vector<std::uint8_t>& raw) {
     std::vector<std::uint8_t> out;
-    // CM = 8 (deflate), CINFO = 7 (32K window); FCHECK chosen so the two header
-    // bytes read as a big-endian multiple of 31.
+    // CM 8 (deflate), CINFO 7 (32K window), FCHECK making the pair a multiple of 31.
     out.push_back(0x78);
     out.push_back(0x01);
     deflateFixed(raw, out);
@@ -222,15 +217,13 @@ std::vector<std::uint8_t> zlibCompress(const std::vector<std::uint8_t>& raw) {
     return out;
 }
 
-// ------------------------------------------------------------------ PNG chunks
-
 void appendChunk(std::vector<std::uint8_t>& out, const char (&type)[5], const std::uint8_t* data,
                  std::size_t size) {
     appendBigEndian32(out, static_cast<std::uint32_t>(size));
     const std::size_t crcBegin = out.size();
     out.insert(out.end(), type, type + 4);
     if (size > 0) out.insert(out.end(), data, data + size);
-    // The CRC covers the type and the data, but not the length.
+    // CRC covers the type and data, not the length.
     const std::uint32_t crc =
         crc32Update(0xFFFFFFFFu, out.data() + crcBegin, out.size() - crcBegin) ^ 0xFFFFFFFFu;
     appendBigEndian32(out, crc);
@@ -244,15 +237,15 @@ std::vector<std::uint8_t> encodePng(int width, int height, const std::uint8_t* r
 
     const std::size_t stride = static_cast<std::size_t>(width) * 3;
 
-    // Every scanline is prefixed with its filter type. Up (2) subtracts the
-    // pixel above, which turns the smooth vertical gradients a renderer produces
-    // into runs of near-zero bytes that LZ77 then eats cheaply.
+    // Each scanline is prefixed with its filter type. Up (2) subtracts the pixel
+    // above, turning the smooth gradients a renderer makes into runs of
+    // near-zero bytes that LZ77 eats cheaply.
     std::vector<std::uint8_t> raw;
     raw.reserve((stride + 1) * static_cast<std::size_t>(height));
     for (int y = 0; y < height; ++y) {
         raw.push_back(2);
         const std::uint8_t* row = rgb + static_cast<std::size_t>(y) * stride;
-        // Row 0 is filtered against an implicit row of zeros, per the spec.
+        // Row 0 filters against an implicit row of zeros, per the spec.
         const std::uint8_t* above = (y == 0) ? nullptr : row - stride;
         for (std::size_t i = 0; i < stride; ++i) {
             const std::uint8_t previous = above != nullptr ? above[i] : 0;
@@ -267,7 +260,7 @@ std::vector<std::uint8_t> encodePng(int width, int height, const std::uint8_t* r
     appendBigEndian32(ihdr, static_cast<std::uint32_t>(width));
     appendBigEndian32(ihdr, static_cast<std::uint32_t>(height));
     ihdr.push_back(8);  // bit depth
-    ihdr.push_back(2);  // colour type 2: truecolour RGB
+    ihdr.push_back(2);  // color type 2, truecolor RGB
     ihdr.push_back(0);  // compression method: deflate
     ihdr.push_back(0);  // filter method: adaptive
     ihdr.push_back(0);  // interlace: none

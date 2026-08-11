@@ -1,9 +1,6 @@
-// Sutherland-Hodgman polygon clipping in homogeneous clip space.
-//
-// A triangle is clipped against the seven half-spaces that define the visible
-// volume, before the perspective divide. Doing it here (rather than in NDC) is
-// what keeps geometry crossing the eye plane from wrapping around: those
-// vertices have w <= 0, and dividing by w would fold them back into view.
+// Sutherland-Hodgman clipping in homogeneous clip space, before the perspective
+// divide. Vertices behind the eye have w <= 0, and dividing by that folds them
+// back into view, so they have to go before the divide happens.
 #pragma once
 
 #include <array>
@@ -12,30 +9,27 @@
 
 namespace sr {
 
-// A vertex mid-pipeline: clip-space position plus whatever the vertex shader
-// wants interpolated. `V` only has to support `V * float` and `V + V`.
 template <class V>
 struct ClipVertex {
     Vec4 position;
     V varyings{};
 };
 
-// Clipping a triangle by 7 planes can add at most one vertex per plane.
+// Seven planes can each add at most one vertex to a triangle.
 inline constexpr int kMaxClippedVertices = 12;
 
 template <class V>
 using ClipPolygon = std::array<ClipVertex<V>, kMaxClippedVertices>;
 
-// Signed distance to each half-space; a vertex is kept where this is >= 0.
 enum class ClipPlane { PositiveW, Left, Right, Bottom, Top, Near, Far };
 
 inline constexpr std::array<ClipPlane, 7> kClipPlanes = {
     ClipPlane::PositiveW, ClipPlane::Left, ClipPlane::Right, ClipPlane::Bottom,
     ClipPlane::Top,       ClipPlane::Near, ClipPlane::Far};
 
+// Vertices are kept where this is >= 0.
 [[nodiscard]] inline float planeDistance(ClipPlane plane, const Vec4& p) noexcept {
-    // Guard w against exactly zero so the perspective divide stays finite.
-    constexpr float kMinW = 1e-5f;
+    constexpr float kMinW = 1e-5f;  // keeps the perspective divide finite
     switch (plane) {
         case ClipPlane::PositiveW: return p.w - kMinW;
         case ClipPlane::Left:      return p.x + p.w;
@@ -48,8 +42,7 @@ inline constexpr std::array<ClipPlane, 7> kClipPlanes = {
     return 0.0f;
 }
 
-// True when the whole triangle sits outside one plane, which is the common case
-// worth rejecting before doing any clipping work.
+// Whole triangle outside one plane. Worth checking first, it is the common case.
 template <class V>
 [[nodiscard]] bool triviallyRejected(const ClipVertex<V>& a, const ClipVertex<V>& b,
                                      const ClipVertex<V>& c) noexcept {
@@ -62,7 +55,6 @@ template <class V>
     return false;
 }
 
-// True when every vertex is inside every plane, so clipping can be skipped.
 template <class V>
 [[nodiscard]] bool triviallyAccepted(const ClipVertex<V>& a, const ClipVertex<V>& b,
                                      const ClipVertex<V>& c) noexcept {
@@ -75,9 +67,8 @@ template <class V>
     return true;
 }
 
-// Clips `poly` (with `count` vertices) in place against every frustum plane and
-// returns the surviving vertex count, or 0 if the polygon was fully rejected.
-// `scratch` is caller-owned so the hot path performs no allocation.
+// Clips in place and returns the surviving vertex count, or 0 if fully rejected.
+// scratch is caller-owned so the hot path does not allocate.
 template <class V>
 int clipPolygon(ClipPolygon<V>& poly, int count, ClipPolygon<V>& scratch) noexcept {
     for (ClipPlane plane : kClipPlanes) {
@@ -97,8 +88,7 @@ int clipPolygon(ClipPolygon<V>& poly, int count, ClipPolygon<V>& scratch) noexce
                 scratch[static_cast<std::size_t>(outCount++)] = current;
             }
 
-            // Crossing the plane: emit the intersection. Interpolating in clip
-            // space is linear, so varyings can be blended with the same t.
+            // Clip space is still linear here, so varyings blend with the same t.
             if (currentInside != nextInside && outCount < kMaxClippedVertices) {
                 const float t = dCurrent / (dCurrent - dNext);
                 ClipVertex<V> hit;

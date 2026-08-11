@@ -1,4 +1,3 @@
-// Minimal texture container plus the procedural patterns the demo scenes use.
 #pragma once
 
 #include <vector>
@@ -9,7 +8,7 @@ namespace sr {
 
 enum class WrapMode { Repeat, Clamp };
 
-// Texels are linear-space RGB, matching the framebuffer.
+// Texels are linear RGB, matching the framebuffer.
 class Texture {
 public:
     Texture() = default;
@@ -34,7 +33,6 @@ public:
     [[nodiscard]] static Texture checker(int size, int cells, const Vec3& a, const Vec3& b);
     [[nodiscard]] static Texture grid(int size, int cells, const Vec3& line, const Vec3& fill,
                                       int lineWidth = 2);
-    // Value-noise turbulence, useful as a stand-in for a real albedo map.
     [[nodiscard]] static Texture noise(int size, const Vec3& a, const Vec3& b, unsigned seed = 1337);
 
 private:

@@ -22,8 +22,7 @@ struct Camera {
 
     [[nodiscard]] Vec3 forward() const noexcept { return normalize(target - eye); }
 
-    // Place the camera on a sphere around `target`. Yaw sweeps around +Y,
-    // pitch lifts towards it.
+    // Yaw sweeps around +Y, pitch lifts toward it.
     [[nodiscard]] static Camera orbit(const Vec3& target, float distance, float yaw, float pitch) {
         Camera cam;
         cam.target = target;
