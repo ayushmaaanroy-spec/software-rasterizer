@@ -1,0 +1,5 @@
+# Normalise line endings in the repository regardless of the platform a
+# contributor is on; the working copy still follows core.autocrlf locally.
+* text=auto
+
+*.png binary
