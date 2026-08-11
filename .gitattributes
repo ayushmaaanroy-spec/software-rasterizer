@@ -1,5 +1,4 @@
-# Normalise line endings in the repository regardless of the platform a
-# contributor is on; the working copy still follows core.autocrlf locally.
+# Store text as LF; the working copy still follows core.autocrlf.
 * text=auto
 
 *.png binary
